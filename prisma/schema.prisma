@@ -18,6 +18,8 @@ model User {
   email     String   @unique
   hash      String
 
+  sessions  Session[]
+
   bookmarks Bookmark[]
 }
 
@@ -33,4 +35,17 @@ model Bookmark{
   userId Int
   user User @relation(fields:[userId], references:[id])
 
+}
+
+model Session {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id])
+
+  jti        String   @unique                // token id
+  expiresAt  DateTime                        // matches JWT exp
+  revokedAt  DateTime?
+  
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime?
 }

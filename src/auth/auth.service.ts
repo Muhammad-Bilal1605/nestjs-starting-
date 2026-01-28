@@ -3,11 +3,13 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { AuthDto } from './dto';
 import * as argon from 'argon2';
 import { PrismaClientKnownRequestError } from 'src/generated/prisma/internal/prismaNamespaceBrowser';
+import { JwtService } from '@nestjs/jwt';
+import { randomUUID, sign } from 'crypto';
 
 
 @Injectable()
 export class AuthService {
-    constructor(private prisma: PrismaService){}
+    constructor(private prisma: PrismaService,private jwt: JwtService){}
 
 
     async signup(dto: AuthDto) {
@@ -17,8 +19,8 @@ export class AuthService {
             
             const user = await this.prisma.user.create({
                 data: {
-                email: dto.email,
-                hash,
+                    email: dto.email,
+                    hash,
                 },
                 select: {
                     id: true,
@@ -26,8 +28,21 @@ export class AuthService {
                     createdAt: true,
                 }
             });
+
+            const jti=randomUUID();
+            const expiresAt=new Date(Date.now()+15*60*1000);
+
+
+            await this.prisma.session.create({
+                data:{
+                    jti,
+                    userId:user.id,
+                    expiresAt,
+                }
+            })
             
-            return user;
+            return this.signToken(user.id,user.email,jti);
+
         } catch (error) {
             throw error;
         }
@@ -52,15 +67,48 @@ export class AuthService {
 
             //check if password correct
             if(!pwMatches) throw new ForbiddenException('Credentials incorrect: password mismatch');
+            // session creation
+            const jti=randomUUID();
+            const expiresAt=new Date(Date.now()+15*60*1000);
+
+
+            await this.prisma.session.create({
+                data:{
+                    jti,
+                    userId:user.id,
+                    expiresAt,
+                }
+            })
             
-            
-            return user;
+            return this.signToken(user.id,user.email,jti);
 
         } catch (error) {
             throw error;
         }
 
         
+    }
+
+    async signToken(userId: number, email: string, jti: string):Promise<{access_token:string}>{
+        const payload={sub:userId,email,jti};
+        const secret=process.env.JWT_SECRET as string;
+
+        const token= await this.jwt.signAsync(payload,{
+            expiresIn:'15m',
+            secret:secret,
+            
+        });
+
+        return{
+            access_token:token,
+        };
+    }
+
+    async revokeSession(jti:string){
+        await this.prisma.session.update({
+            where:{jti},
+            data:{revokedAt:new Date()}
+        })
     }
 
 }
